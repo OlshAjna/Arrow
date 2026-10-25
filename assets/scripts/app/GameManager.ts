@@ -1,228 +1,104 @@
-import { _decorator, Component, director } from 'cc';
-import { CollisionDetector } from '../core/CollisionDetector';
-import type { GameStatus } from '../core/GameTypes';
-import type { LevelRuntime } from '../managers/LevelManager';
-import { LevelManager } from '../managers/LevelManager';
+import type { MoveCheck } from '../core/types';
+import type { BlockedReason } from '../core/game-core';
+import type { GameCore } from '../core/game-core';
 import { CocosLocalStorage } from '../storage/CocosLocalStorage';
 import { StorageManager } from '../storage/StorageManager';
-import { UIManager } from '../managers/UIManager';
+import { LevelManager, type LevelSummary } from '../managers/LevelManager';
+import { CocosJsonResourceLoader } from '../utils/JsonResourceLoader';
 
-const { ccclass, property } = _decorator;
+/**
+ * 对局应用层入口。它连接关卡、纯逻辑核心和存档，但不负责节点绘制。
+ */
+export class GameManager {
+    private static active: GameManager | null = null;
 
-@ccclass('GameManager')
-export class GameManager extends Component {
-    public static instance: GameManager | null = null;
+    private nextId: string | null = null;
 
-    @property(UIManager)
-    public uiManager: UIManager | null = null;
+    private constructor(private readonly levels: LevelManager) {}
 
-    private storageManager: StorageManager | null = null;
-    private levelManager: LevelManager | null = null;
-    private lives = 0;
-    private mistakes = 0;
-    private hintsUsed = 0;
-    private status: GameStatus = 'idle';
-    private busy = false;
-    private nextLevelId: string | null = null;
-
-    protected onLoad(): void {
-        if (GameManager.instance !== null && GameManager.instance !== this) {
-            this.node.destroy();
-            return;
+    public static async create(): Promise<GameManager> {
+        if (GameManager.active !== null) {
+            return GameManager.active;
         }
 
-        GameManager.instance = this;
-        director.addPersistRootNode(this.node);
-        this.uiManager = this.uiManager ?? this.getComponent(UIManager) ?? this.node.addComponent(UIManager);
-        this.uiManager.onArrowTap = (arrowId) => this.handleArrowTap(arrowId);
-        this.uiManager.onResetRequested = () => this.resetCurrentLevel();
-        this.uiManager.onHintRequested = () => this.showHint();
-        this.uiManager.onNextLevelRequested = () => this.loadNextLevel();
+        const storage = new StorageManager(new CocosLocalStorage());
+        const levels = new LevelManager(storage, new CocosJsonResourceLoader());
+        await levels.initialize();
+        GameManager.active = new GameManager(levels);
+        return GameManager.active;
     }
 
-    protected start(): void {
-        void this.bootstrap();
+    public static get instance(): GameManager {
+        if (GameManager.active === null) {
+            throw new Error('GameManager 尚未创建');
+        }
+        return GameManager.active;
     }
 
-    protected onDestroy(): void {
-        if (GameManager.instance === this) {
-            GameManager.instance = null;
-        }
-        if (this.uiManager !== null) {
-            this.uiManager.onArrowTap = null;
-            this.uiManager.onResetRequested = null;
-            this.uiManager.onHintRequested = null;
-            this.uiManager.onNextLevelRequested = null;
-        }
+    public async loadLevel(levelId?: string): Promise<GameCore> {
+        const game = await this.levels.loadLevel(levelId);
+        this.nextId = this.levels.nextLevelId;
+        game.message = this.levels.currentLevel.order === 1
+            ? '点击一条黑线，让它沿箭头方向离开棋盘。'
+            : `第 ${this.levels.currentLevel.order} 关：寻找当前畅通的出口。`;
+        return game;
     }
 
-    public async loadLevel(levelId?: string): Promise<void> {
-        if (this.levelManager === null || this.uiManager === null) {
-            return;
-        }
-
-        this.busy = true;
-        this.status = 'idle';
-        try {
-            const runtime = await this.levelManager.loadLevel(levelId);
-            this.beginLevel(runtime);
-        } catch (error) {
-            this.status = 'lost';
-            this.uiManager.showMessage(error instanceof Error ? error.message : '关卡加载失败');
-        } finally {
-            this.busy = false;
-        }
+    public get game(): GameCore {
+        return this.levels.game;
     }
 
-    public resetCurrentLevel(): void {
-        if (this.levelManager === null || this.uiManager === null || this.busy) {
-            return;
-        }
-
-        const runtime = this.levelManager.resetCurrentLevel();
-        this.beginLevel(runtime);
+    public get nextLevelId(): string | null {
+        return this.nextId;
     }
 
-    public showHint(): void {
-        if (this.levelManager === null || this.uiManager === null || this.busy) {
-            return;
-        }
-        if (this.status !== 'playing') {
-            return;
-        }
-
-        const hintArrowId = this.levelManager.getHintArrowId();
-        if (hintArrowId === null) {
-            this.uiManager.showMessage('当前没有可释放箭头');
-            return;
-        }
-
-        this.hintsUsed += 1;
-        this.uiManager.showHint(hintArrowId);
+    public get currentLevel(): LevelSummary {
+        return this.levels.currentLevel;
     }
 
-    public loadNextLevel(): void {
-        if (this.nextLevelId === null || this.busy) {
-            return;
-        }
-        void this.loadLevel(this.nextLevelId);
+    public get unlockedLevels(): readonly LevelSummary[] {
+        return this.levels.unlockedLevels;
     }
 
-    private async bootstrap(): Promise<void> {
-        this.storageManager = new StorageManager(new CocosLocalStorage());
-        this.levelManager = new LevelManager(this.storageManager);
-
-        try {
-            await this.levelManager.initialize();
-            await this.loadLevel();
-        } catch (error) {
-            this.status = 'lost';
-            this.uiManager?.showMessage(error instanceof Error ? error.message : '初始化失败');
-        }
+    public checkMove(arrowId: string): MoveCheck {
+        return this.game.checkMove(arrowId);
     }
 
-    private beginLevel(runtime: LevelRuntime): void {
-        if (this.uiManager === null) {
-            return;
+    public commitClear(arrowId: string): boolean {
+        const wasPlaying = this.game.status === 'playing';
+        const cleared = this.game.commitClear(arrowId);
+        if (cleared && wasPlaying && this.game.status === 'won') {
+            const stars = this.calculateStars();
+            this.nextId = this.levels.completeCurrentLevel(stars);
+            this.game.message = `${this.game.message} 获得 ${stars} 星`;
         }
-
-        this.lives = runtime.config.initialLives;
-        this.mistakes = 0;
-        this.hintsUsed = 0;
-        this.nextLevelId = null;
-        this.status = 'playing';
-        this.busy = false;
-        this.uiManager.renderLevel(runtime);
-        this.uiManager.updateHUD(this.lives, this.status);
+        return cleared;
     }
 
-    private async handleArrowTap(arrowId: string): Promise<void> {
-        if (
-            this.levelManager === null ||
-            this.uiManager === null ||
-            this.busy ||
-            this.status !== 'playing'
-        ) {
-            return;
-        }
-
-        const runtime = this.levelManager.current;
-        const arrow = runtime.arrows.find((item) => item.id === arrowId);
-        if (arrow === undefined || arrow.isRemoved()) {
-            return;
-        }
-
-        this.busy = true;
-        const result = CollisionDetector.inspect(
-            arrow,
-            runtime.arrows,
-            runtime.blocks,
-            runtime.config,
-        );
-
-        if (!result.canMove) {
-            arrow.beginReturn();
-            await this.uiManager.animateBlocked(arrow);
-            arrow.reset();
-            this.mistakes += 1;
-            if (runtime.config.blockedTapCostsLife) {
-                this.lives = Math.max(0, this.lives - 1);
-            }
-            this.uiManager.updateHUD(this.lives, this.status);
-            this.busy = false;
-            if (this.lives === 0) {
-                this.finishAsLost();
-            }
-            return;
-        }
-
-        arrow.move();
-        await this.uiManager.animateArrowExit(arrow);
-        arrow.eliminate();
-        runtime.arrows = runtime.arrows.filter((item) => item.id !== arrow.id);
-        this.uiManager.removeArrowNode(arrow.id);
-        this.busy = false;
-
-        if (this.levelManager.getMovableArrowCount(runtime) === 0) {
-            this.finishAsWon(runtime);
-        }
+    public registerBlocked(arrowId: string, reason: BlockedReason): void {
+        this.game.registerBlocked(arrowId, reason);
     }
 
-    private finishAsWon(runtime: LevelRuntime): void {
-        if (this.uiManager === null || this.levelManager === null) {
-            return;
-        }
-
-        this.status = 'won';
-        const stars = this.calculateStars(runtime);
-        this.nextLevelId = this.levelManager.completeCurrentLevel(stars);
-        this.uiManager.updateHUD(this.lives, this.status);
-        this.uiManager.showMessage(`通关  ${'★'.repeat(stars)}${'☆'.repeat(3 - stars)}`);
+    public useHint(): string | null {
+        return this.game.useHint();
     }
 
-    private finishAsLost(): void {
-        if (this.uiManager === null) {
-            return;
-        }
-        this.status = 'lost';
-        this.uiManager.updateHUD(this.lives, this.status);
-        this.uiManager.showMessage('生命耗尽，点击重置再试一次');
+    public reset(): void {
+        this.levels.resetCurrentLevel();
+        this.game.message = '关卡已重置';
     }
 
-    private calculateStars(runtime: LevelRuntime): number {
-        const rules = runtime.config.starRules;
-        if (
-            this.mistakes <= rules.threeStarMaxMistakes &&
-            this.hintsUsed <= rules.threeStarMaxHints
-        ) {
+    public async loadNextLevel(): Promise<GameCore | null> {
+        if (this.nextId === null) {
+            return null;
+        }
+        return this.loadLevel(this.nextId);
+    }
+
+    private calculateStars(): number {
+        if (this.game.lives >= this.game.maxLife) {
             return 3;
         }
-        if (
-            this.mistakes <= rules.twoStarMaxMistakes &&
-            this.hintsUsed <= rules.twoStarMaxHints
-        ) {
-            return 2;
-        }
-        return 1;
+        return this.game.lives > 0 ? 2 : 1;
     }
 }

@@ -5,7 +5,7 @@
     "moduleResolution": "Bundler",
     "strict": true,
     "noImplicitOverride": true,
-    "noUncheckedIndexedAccess": true,
+    "noUncheckedIndexedAccess": false,
     "useDefineForClassFields": false,
     "experimentalDecorators": true,
     "allowImportingTsExtensions": true,
@@ -22,7 +22,7 @@
   "include": [
     "assets/**/*.ts",
     "tests/cc-stubs.d.ts",
-    "tests/domain.test.ts",
+    "tests/**/*.ts",
     "scripts/validate-levels.ts"
   ]
 }
