@@ -1,0 +1,105 @@
+{
+  "id": "level-003",
+  "order": 3,
+  "name": "多重阻挡",
+  "rows": 8,
+  "columns": 8,
+  "cellSize": 78,
+  "initialLives": 4,
+  "blockedTapCostsLife": true,
+  "starRules": {
+    "twoStarMaxMistakes": 2,
+    "threeStarMaxMistakes": 0,
+    "twoStarMaxHints": 1,
+    "threeStarMaxHints": 0
+  },
+  "arrows": [
+    {
+      "id": "normal-a",
+      "kind": "normal",
+      "direction": "right",
+      "body": [
+        { "x": 0, "y": 0 },
+        { "x": 0, "y": 1 },
+        { "x": 0, "y": 2 }
+      ],
+      "drawOrder": 3
+    },
+    {
+      "id": "normal-b",
+      "kind": "normal",
+      "direction": "down",
+      "body": [
+        { "x": 3, "y": 0 },
+        { "x": 3, "y": 1 },
+        { "x": 3, "y": 2 }
+      ],
+      "drawOrder": 4
+    },
+    {
+      "id": "normal-c",
+      "kind": "normal",
+      "direction": "up",
+      "body": [
+        { "x": 2, "y": 7 },
+        { "x": 2, "y": 6 }
+      ],
+      "drawOrder": 5
+    },
+    {
+      "id": "normal-d",
+      "kind": "normal",
+      "direction": "left",
+      "body": [
+        { "x": 7, "y": 7 },
+        { "x": 7, "y": 6 }
+      ],
+      "drawOrder": 6
+    },
+    {
+      "id": "reverse-a",
+      "kind": "reverse",
+      "direction": "left",
+      "body": [
+        { "x": 5, "y": 3 },
+        { "x": 6, "y": 3 }
+      ],
+      "drawOrder": 7
+    },
+    {
+      "id": "fixed-a",
+      "kind": "fixed",
+      "direction": "up",
+      "body": [
+        { "x": 4, "y": 4 },
+        { "x": 5, "y": 4 }
+      ],
+      "drawOrder": 1
+    },
+    {
+      "id": "fixed-b",
+      "kind": "fixed",
+      "direction": "down",
+      "body": [
+        { "x": 7, "y": 1 },
+        { "x": 7, "y": 2 }
+      ],
+      "drawOrder": 2
+    }
+  ],
+  "walls": [
+    {
+      "id": "wall-a",
+      "cells": [
+        { "x": 4, "y": 2 },
+        { "x": 5, "y": 2 }
+      ]
+    },
+    {
+      "id": "wall-b",
+      "cells": [
+        { "x": 1, "y": 4 }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "levels": [
+    {
+      "levelId": "level-001",
+      "order": 1,
+      "name": "初次放行",
+      "resource": "levels/level-001"
+    },
+    {
+      "levelId": "level-002",
+      "order": 2,
+      "name": "交错通道",
+      "resource": "levels/level-002"
+    },
+    {
+      "levelId": "level-003",
+      "order": 3,
+      "name": "多重阻挡",
+      "resource": "levels/level-003"
+    }
+  ]
+}
