@@ -1,0 +1,21 @@
+# Cocos Creator generated content
+library/
+local/
+temp/
+profiles/
+build/
+native/
+
+# Dependencies and editor state
+node_modules/
+.vscode/
+.idea/
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Local test output
+coverage/
+test-results/
