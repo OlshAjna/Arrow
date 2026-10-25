@@ -1,88 +1,113 @@
-import { NormalArrow } from '../core/arrows/NormalArrow';
-import { FixedArrow } from '../core/arrows/FixedArrow';
-import { ReverseArrow } from '../core/arrows/ReverseArrow';
-import type { ArrowBase } from '../core/ArrowBase';
-import { Block } from '../core/Block';
-import { CollisionDetector } from '../core/CollisionDetector';
-import { GridPoint } from '../core/GridPoint';
-import {
-    LevelConfigParser,
-    type ArrowConfig,
-    type LevelConfig,
-    type LevelManifest,
-    type LevelSummary,
-} from '../levels/LevelConfig';
+import { GameCore } from '../core/game-core';
+import { validateLevel } from '../core/level-validation';
+import type { LevelConfig } from '../core/types';
+import type { LevelProgress } from '../storage/SaveData';
 import { StorageManager } from '../storage/StorageManager';
-import { CocosJsonResourceLoader, type JsonAssetLoader } from '../utils/JsonResourceLoader';
+import type { JsonAssetLoader } from '../utils/JsonResourceLoader';
 
-export interface LevelRuntime {
-    config: LevelConfig;
-    arrows: ArrowBase[];
-    blocks: Block[];
+export interface LevelSummary {
+    levelId: string;
+    order: number;
+    name: string;
+    resource: string;
+}
+
+export interface LevelManifest {
+    version: number;
+    levels: LevelSummary[];
 }
 
 export class LevelManager {
     private static readonly MANIFEST_PATH = 'levels/level-manifest';
 
     private manifest: LevelManifest | null = null;
-    private runtime: LevelRuntime | null = null;
+    private currentGame: GameCore | null = null;
     private currentSummary: LevelSummary | null = null;
 
     public constructor(
         private readonly storage: StorageManager,
-        private readonly loader: JsonAssetLoader = new CocosJsonResourceLoader(),
+        private readonly loader: JsonAssetLoader,
     ) {}
 
-    public async initialize(): Promise<LevelSummary[]> {
+    public async initialize(): Promise<void> {
         if (this.manifest !== null) {
-            return this.unlockedSummaries();
+            return;
         }
 
         const raw = await this.loader.load<unknown>(LevelManager.MANIFEST_PATH);
-        this.manifest = LevelConfigParser.parseManifest(raw);
-        return this.unlockedSummaries();
+        this.manifest = this.parseManifest(raw);
     }
 
-    public async loadLevel(levelId?: string): Promise<LevelRuntime> {
+    public async loadLevel(levelId?: string): Promise<GameCore> {
         await this.initialize();
         const summary = levelId === undefined
-            ? this.findInitialSummary()
+            ? this.getInitialSummary()
             : this.requireSummary(levelId);
 
         if (!this.storage.isOrderUnlocked(summary.order)) {
-            throw new Error(`Level "${summary.levelId}" is locked.`);
+            throw new Error(`关卡 ${summary.name} 尚未解锁`);
         }
 
-        const raw = await this.loader.load<unknown>(summary.resource);
-        const config = LevelConfigParser.parseLevel(raw);
-        if (config.id !== summary.levelId || config.order !== summary.order) {
+        const config = await this.loader.load<LevelConfig>(summary.resource);
+        validateLevel(config);
+        if (config.id !== summary.levelId) {
             throw new Error(
-                `Manifest entry "${summary.levelId}" does not match resource metadata.`,
+                `关卡清单中的 ${summary.levelId} 与配置中的 ${config.id} 不一致`,
             );
         }
 
+        this.currentGame = new GameCore(config);
         this.currentSummary = summary;
-        this.runtime = this.createRuntime(config);
-        return this.runtime;
+        return this.currentGame;
     }
 
-    public resetCurrentLevel(): LevelRuntime {
-        if (this.runtime === null) {
-            throw new Error('No level is currently loaded.');
+    public resetCurrentLevel(): GameCore {
+        if (this.currentGame === null) {
+            throw new Error('尚未加载关卡');
         }
-        this.runtime = this.createRuntime(this.runtime.config);
-        return this.runtime;
+        this.currentGame.reset();
+        return this.currentGame;
     }
 
-    public get current(): LevelRuntime {
-        if (this.runtime === null) {
-            throw new Error('No level is currently loaded.');
+    public get game(): GameCore {
+        if (this.currentGame === null) {
+            throw new Error('尚未加载关卡');
         }
-        return this.runtime;
+        return this.currentGame;
     }
 
-    public get currentLevelSummary(): LevelSummary | null {
-        return this.currentSummary === null ? null : { ...this.currentSummary };
+    public get currentLevel(): LevelSummary {
+        if (this.currentSummary === null) {
+            throw new Error('尚未加载关卡');
+        }
+        return { ...this.currentSummary };
+    }
+
+    public completeCurrentLevel(stars: number): string | null {
+        const current = this.currentLevel;
+        this.storage.recordLevelCompletion(current.levelId, stars);
+        const next = this.getNextSummary(current);
+        if (next !== null) {
+            this.storage.setMaxUnlockedOrder(next.order);
+            return next.levelId;
+        }
+        return null;
+    }
+
+    public isLevelUnlocked(levelId: string): boolean {
+        const summary = this.manifest?.levels.find((item) => item.levelId === levelId);
+        return summary !== undefined && this.storage.isOrderUnlocked(summary.order);
+    }
+
+    public getLevelProgress(levelId: string): LevelProgress | null {
+        return this.storage.getLevelProgress(levelId);
+    }
+
+    public get nextLevelId(): string | null {
+        if (this.currentSummary === null) {
+            return null;
+        }
+        return this.getNextSummary(this.currentSummary)?.levelId ?? null;
     }
 
     public get unlockedLevels(): readonly LevelSummary[] {
@@ -94,104 +119,90 @@ export class LevelManager {
             .map((summary) => ({ ...summary }));
     }
 
-    public isLevelUnlocked(levelId: string): boolean {
-        const summary = this.manifest?.levels.find((item) => item.levelId === levelId);
-        return summary !== undefined && this.storage.isOrderUnlocked(summary.order);
-    }
-
-    public getHintArrowId(): string | null {
-        const runtime = this.current;
-        const arrow = CollisionDetector.findMovableArrow(
-            runtime.arrows,
-            runtime.blocks,
-            runtime.config,
-        );
-        return arrow?.id ?? null;
-    }
-
-    public completeCurrentLevel(stars: number): string | null {
-        const runtime = this.current;
-        const summary = this.requireCurrentSummary();
-        this.storage.recordLevelCompletion(runtime.config.id, stars);
-
-        const next = this.getNextSummary(summary);
-        if (next !== null) {
-            this.storage.setMaxUnlockedOrder(next.order);
-            return next.levelId;
-        }
-        return null;
-    }
-
-    public getMovableArrowCount(runtime: LevelRuntime = this.current): number {
-        return runtime.arrows.filter(
-            (arrow) => !arrow.isRemoved() && arrow.getMoveDirection() !== null,
-        ).length;
-    }
-
-    private createRuntime(config: LevelConfig): LevelRuntime {
-        return {
-            config,
-            arrows: config.arrows.map((arrow) => this.createArrow(arrow)),
-            blocks: config.walls.map((wall) => new Block(wall)),
-        };
-    }
-
-    private createArrow(config: ArrowConfig): ArrowBase {
-        const data = {
-            id: config.id,
-            displayDirection: config.direction,
-            body: config.body.map((point) => GridPoint.from(point)),
-            drawOrder: config.drawOrder,
-        };
-
-        switch (config.kind) {
-            case 'normal':
-                return new NormalArrow(data);
-            case 'fixed':
-                return new FixedArrow(data);
-            case 'reverse':
-                return new ReverseArrow(data);
-        }
-    }
-
-    private findInitialSummary(): LevelSummary {
-        const unlocked = this.unlockedSummaries();
+    private getInitialSummary(): LevelSummary {
+        const unlocked = this.unlockedLevels;
         const summary = unlocked[unlocked.length - 1] ?? this.requireManifest().levels[0];
         if (summary === undefined) {
-            throw new Error('Level manifest is empty.');
+            throw new Error('关卡清单为空');
         }
         return summary;
+    }
+
+    private getNextSummary(current: LevelSummary): LevelSummary | null {
+        return this.requireManifest().levels.find((item) => item.order > current.order) ?? null;
     }
 
     private requireSummary(levelId: string): LevelSummary {
         const summary = this.requireManifest().levels.find((item) => item.levelId === levelId);
         if (summary === undefined) {
-            throw new Error(`Unknown level "${levelId}".`);
+            throw new Error(`未知关卡 ${levelId}`);
         }
         return summary;
     }
 
-    private getNextSummary(summary: LevelSummary): LevelSummary | null {
-        return this.requireManifest().levels.find((item) => item.order > summary.order) ?? null;
-    }
-
-    private unlockedSummaries(): LevelSummary[] {
-        return this.requireManifest().levels
-            .filter((summary) => this.storage.isOrderUnlocked(summary.order))
-            .map((summary) => ({ ...summary }));
-    }
-
     private requireManifest(): LevelManifest {
         if (this.manifest === null) {
-            throw new Error('LevelManager must be initialized before use.');
+            throw new Error('关卡管理器尚未初始化');
         }
         return this.manifest;
     }
 
-    private requireCurrentSummary(): LevelSummary {
-        if (this.currentSummary === null) {
-            throw new Error('No level is currently loaded.');
+    private parseManifest(value: unknown): LevelManifest {
+        if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+            throw new Error('关卡清单格式错误');
         }
-        return this.currentSummary;
+
+        const record = value as Record<string, unknown>;
+        if (!Array.isArray(record.levels) || record.levels.length === 0) {
+            throw new Error('关卡清单必须包含 levels 数组');
+        }
+
+        const ids = new Set<string>();
+        const orders = new Set<number>();
+        const levels = record.levels.map((entry, index) => {
+            if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) {
+                throw new Error(`levels[${index}] 格式错误`);
+            }
+
+            const item = entry as Record<string, unknown>;
+            const levelId = this.requiredString(item.levelId, `levels[${index}].levelId`);
+            const order = this.requiredPositiveInteger(item.order, `levels[${index}].order`);
+            const summary: LevelSummary = {
+                levelId,
+                order,
+                name: this.requiredString(item.name, `levels[${index}].name`),
+                resource: this.requiredString(item.resource, `levels[${index}].resource`),
+            };
+
+            if (ids.has(levelId) || orders.has(order)) {
+                throw new Error(`关卡清单存在重复 ID 或顺序：${levelId}`);
+            }
+            ids.add(levelId);
+            orders.add(order);
+            return summary;
+        });
+
+        return {
+            version: this.optionalPositiveInteger(record.version, 1),
+            levels: levels.sort((left, right) => left.order - right.order),
+        };
+    }
+
+    private requiredString(value: unknown, field: string): string {
+        if (typeof value !== 'string' || value.trim() === '') {
+            throw new Error(`${field} 必须是非空字符串`);
+        }
+        return value.trim();
+    }
+
+    private requiredPositiveInteger(value: unknown, field: string): number {
+        if (typeof value !== 'number' || !Number.isInteger(value) || value < 1) {
+            throw new Error(`${field} 必须是正整数`);
+        }
+        return value;
+    }
+
+    private optionalPositiveInteger(value: unknown, fallback: number): number {
+        return value === undefined ? fallback : this.requiredPositiveInteger(value, 'version');
     }
 }

@@ -26,6 +26,8 @@ declare module 'cc' {
         public constructor(name?: string);
         public readonly children: readonly Node[];
         public readonly position: Vec3;
+        public layer: number;
+        public active: boolean;
         public addChild(child: Node): void;
         public setPosition(x: number, y: number, z?: number): void;
         public setPosition(position: Vec3): void;
@@ -35,23 +37,42 @@ declare module 'cc' {
         public removeAllChildren(): void;
         public getComponent<T extends Component>(type: new () => T): T | null;
         public addComponent<T extends Component>(type: new () => T): T;
-        public on(type: string, callback: () => void, target?: unknown): void;
+        public on(type: string, callback: (event: EventTouch) => void, target?: unknown): void;
     }
 
     export class UITransform extends Component {
         public setContentSize(width: number, height: number): void;
+        public convertToNodeSpaceAR(worldPoint: Vec3): Vec3;
+        public convertToWorldSpaceAR(localPoint: Vec3): Vec3;
     }
 
     export class Graphics extends Component {
+        public static readonly LineCap: {
+            ROUND: number;
+        };
+        public static readonly LineJoin: {
+            ROUND: number;
+        };
         public lineWidth: number;
         public strokeColor: Color;
         public fillColor: Color;
+        public lineCap: number;
+        public lineJoin: number;
+        public clear(): void;
         public moveTo(x: number, y: number): void;
         public lineTo(x: number, y: number): void;
         public rect(x: number, y: number, width: number, height: number): void;
+        public roundRect(
+            x: number,
+            y: number,
+            width: number,
+            height: number,
+            radius: number,
+        ): void;
         public circle(x: number, y: number, radius: number): void;
         public stroke(): void;
         public fill(): void;
+        public close(): void;
     }
 
     export class Label extends Component {
@@ -61,6 +82,9 @@ declare module 'cc' {
         public static readonly VerticalAlign: {
             CENTER: number;
         };
+        public static readonly Overflow: {
+            NONE: number;
+        };
 
         public string: string;
         public fontSize: number;
@@ -68,6 +92,21 @@ declare module 'cc' {
         public color: Color;
         public horizontalAlign: number;
         public verticalAlign: number;
+        public overflow: number;
+    }
+
+    export class EventTouch {
+        public getUILocation(): { x: number; y: number };
+    }
+
+    export class Layers {
+        public static readonly Enum: {
+            UI_2D: number;
+        };
+    }
+
+    export class ResolutionPolicy {
+        public static readonly FIXED_WIDTH: number;
     }
 
     export class JsonAsset {
@@ -98,6 +137,11 @@ declare module 'cc' {
 
     export const view: {
         getVisibleSize(): { width: number; height: number };
+        setDesignResolutionSize(width: number, height: number, policy: number): void;
+    };
+
+    export const profiler: {
+        hideStats(): void;
     };
 
     export const resources: {

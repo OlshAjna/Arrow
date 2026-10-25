@@ -1,15 +1,16 @@
 {
-  "name": "arrow-grid-puzzle",
+  "name": "yizhijian-long-maze",
   "version": "0.1.0",
   "private": true,
-  "description": "Cocos Creator 3.x directional grid puzzle",
+  "description": "Cocos Creator 3.8.6 polyline arrow puzzle",
   "creator": {
-    "version": "3.8.0"
+    "version": "3.8.6"
   },
+  "uuid": "3c8730bc-d160-47fe-9bfc-f214dbbcab5b",
   "scripts": {
     "typecheck": "tsc -p tsconfig.check.json",
     "validate:levels": "node --experimental-transform-types --experimental-loader ./tests/ts-loader.mjs scripts/validate-levels.ts",
-    "test:domain": "node --experimental-transform-types --experimental-loader ./tests/ts-loader.mjs tests/domain.test.ts"
+    "test:domain": "node --experimental-transform-types --experimental-loader ./tests/ts-loader.mjs --test tests/core.test.ts tests/game-core.test.ts"
   },
   "devDependencies": {
     "@types/node": "^22.20.5",

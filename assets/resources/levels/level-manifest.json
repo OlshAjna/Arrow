@@ -2,22 +2,16 @@
   "version": 1,
   "levels": [
     {
-      "levelId": "level-001",
+      "levelId": "iter3-demo-01",
       "order": 1,
-      "name": "初次放行",
+      "name": "第一关 · 先看出口",
       "resource": "levels/level-001"
     },
     {
-      "levelId": "level-002",
+      "levelId": "long-maze-01",
       "order": 2,
-      "name": "交错通道",
+      "name": "长线迷宫 · 第 1 关",
       "resource": "levels/level-002"
-    },
-    {
-      "levelId": "level-003",
-      "order": 3,
-      "name": "多重阻挡",
-      "resource": "levels/level-003"
     }
   ]
 }
